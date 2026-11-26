@@ -1,0 +1,18 @@
+name = "max-schedule-relay"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+MAX_CHANNEL_URL = "https://max.ru/id5903158943_gos"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "max-relay"
+database_id = "78f6c260-6f8b-49a9-801d-299f4ae48bec"
+
+# 04:00-17:59 UTC = 07:00-20:59 Moscow.
+[triggers]
+crons = ["* 4-17 * * *"]
+
+[observability]
+enabled = true
