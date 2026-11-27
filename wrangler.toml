@@ -2,9 +2,6 @@ name = "max-schedule-relay"
 main = "src/index.js"
 compatibility_date = "2026-11-01"
 
-[vars]
-MAX_CHANNEL_URL = "https://max.ru/id5903158943_gos"
-
 [[d1_databases]]
 binding = "DB"
 database_name = "max-relay"

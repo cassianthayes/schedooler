@@ -1,12 +1,15 @@
-const DEFAULT_CHANNEL = "https://max.ru/id5903158943_gos";
 const FILTER_TERM = "расписание";
 const IMAGE_WIDTH = 1440;
 const CAPTION_LIMIT = 1024;
+const ALERT_LIMIT = 4096;
 
 export default {
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(
-      run(env).catch((error) => console.error("cron failed:", message(error))),
+      run(env).catch(async (error) => {
+        console.error("cron failed:", message(error));
+        await alert(env, "cron failed", message(error));
+      }),
     );
   },
 };
@@ -22,6 +25,8 @@ async function run(env) {
     return;
   }
 
+  const failures = [];
+
   for (const post of posts) {
     if (known.has(post.key) || !matches(post)) {
       continue;
@@ -33,8 +38,19 @@ async function run(env) {
       console.log(`sent ${post.key} as ${messageId}`);
     } catch (error) {
       await forget(env, post.key);
+      failures.push(`${post.key}: ${message(error)}`);
       console.error(`send failed ${post.key}:`, message(error));
     }
+  }
+
+  // One warning per run, so a batch of failed posts is still one message.
+  if (failures.length > 0) {
+    const count = failures.length;
+    await alert(
+      env,
+      count === 1 ? "1 post failed to send" : `${count} posts failed to send`,
+      failures.join("\n"),
+    );
   }
 }
 
@@ -72,7 +88,11 @@ async function forget(env, key) {
 }
 
 async function fetchPosts(env) {
-  const channel = (env.MAX_CHANNEL_URL || DEFAULT_CHANNEL).replace(/\/+$/, "");
+  const channel = (env.MAX_CHANNEL_URL || "").replace(/\/+$/, "");
+  if (!channel) {
+    throw new Error("MAX_CHANNEL_URL is missing");
+  }
+
   const response = await fetch(`${channel}/__data.json`, {
     headers: {
       accept: "application/json",
@@ -160,10 +180,9 @@ function list(value) {
 }
 
 async function sendTelegram(env, post) {
-  const token = env.TELEGRAM_BOT_TOKEN;
   const chatId = env.TELEGRAM_CHAT_ID;
-  if (!token || !chatId) {
-    throw new Error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing");
+  if (!chatId) {
+    throw new Error("TELEGRAM_CHAT_ID is missing");
   }
 
   const imageUrl = new URL(post.attachments[0].url);
@@ -188,11 +207,44 @@ async function sendTelegram(env, post) {
     form.append("caption", post.text.slice(0, CAPTION_LIMIT));
   }
 
-  const telegram = await fetch(
-    `https://api.telegram.org/bot${token}/sendPhoto`,
-    { method: "POST", body: form },
+  const result = await callTelegram(env, "sendPhoto", form);
+  return result.message_id;
+}
+
+// Warns the operator about a failed run. Alerting problems are logged only, so
+// they never mask the failure they are reporting.
+async function alert(env, summary, detail) {
+  const userId = env.TELEGRAM_ALERT_USER_ID;
+  if (!userId) {
+    console.error("alert skipped: TELEGRAM_ALERT_USER_ID is missing");
+    return;
+  }
+
+  const form = new FormData();
+  form.append("chat_id", String(userId));
+  form.append(
+    "text",
+    `max-schedule-relay: ${summary}\n\n${detail}`.slice(0, ALERT_LIMIT),
   );
-  const result = await telegram.json();
+
+  try {
+    await callTelegram(env, "sendMessage", form);
+  } catch (error) {
+    console.error("alert failed:", message(error));
+  }
+}
+
+async function callTelegram(env, method, body) {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    throw new Error("TELEGRAM_BOT_TOKEN is missing");
+  }
+
+  const response = await fetch(
+    `https://api.telegram.org/bot${token}/${method}`,
+    { method: "POST", body },
+  );
+  const result = await response.json();
 
   if (!result.ok) {
     throw new Error(
@@ -200,7 +252,7 @@ async function sendTelegram(env, post) {
     );
   }
 
-  return result.result.message_id;
+  return result.result;
 }
 
 function assertAllowedImageUrl(url) {

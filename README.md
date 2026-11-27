@@ -19,13 +19,23 @@ npx wrangler d1 create max-relay --location=eeur
 npx wrangler d1 execute max-relay --file=schema.sql --remote
 npx wrangler secret put TELEGRAM_BOT_TOKEN   # from @BotFather
 npx wrangler secret put TELEGRAM_CHAT_ID     # e.g. @scheduleflagman
+npx wrangler secret put TELEGRAM_ALERT_USER_ID  # numeric id for failure warnings
+npx wrangler secret put MAX_CHANNEL_URL      # e.g. https://max.ru/id5903158943_gos
 npx wrangler deploy
 ```
 
-The bot must be an admin of the target Telegram channel. To use another MAX
-channel, change `MAX_CHANNEL_URL` in `wrangler.toml`.
+The bot must be an admin of the target Telegram channel. `MAX_CHANNEL_URL`
+accepts any public MAX channel; the run fails (and alerts) when it is missing.
+
+Failures are reported through the same bot: a run that throws, or one where
+some posts could not be sent, sends a single warning to
+`TELEGRAM_ALERT_USER_ID`. That user must have started a chat with the bot;
+without the secret, failures are only logged.
 
 ## Test locally
+
+Copy `.env.example` to `.env` and fill in the values first; `wrangler dev`
+reads it for local runs.
 
 ```bash
 npx wrangler d1 execute max-relay --file=schema.sql --local
@@ -35,6 +45,6 @@ curl "http://localhost:8787/__scheduled?cron=*+4-17+*+*+*"
 
 The first local run only records the current posts as a baseline.
 
-`wrangler.toml` holds the cron schedule, D1 binding, and channel URL.
-`schema.sql` creates the `relayed` table and removes the old `seen`/`state`
-tables.
+`wrangler.toml` holds the cron schedule and D1 binding; all API credentials
+and the MAX channel URL are Worker secrets. `schema.sql` creates the `relayed`
+table and removes the old `seen`/`state` tables.
